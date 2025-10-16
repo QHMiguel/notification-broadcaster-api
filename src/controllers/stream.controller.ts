@@ -26,9 +26,16 @@ export class StreamController {
     try {
       // Headers SSE
       res.setHeader?.('Content-Type', 'text/event-stream');
-      res.setHeader?.('Cache-Control', 'no-cache');
+      res.setHeader?.('Cache-Control', 'no-cache, no-transform');
       res.setHeader?.('Connection', 'keep-alive');
-      res.setHeader?.('X-Accel-Buffering', 'no');
+      res.setHeader?.('X-Accel-Buffering', 'no'); // Desactiva buffering en nginx
+      
+      // Headers adicionales para evitar timeouts en proxies/load balancers
+      res.setTimeout?.(0); // Sin timeout en el socket
+      if (res.socket) {
+        res.socket.setKeepAlive?.(true, 15000); // Keep-alive TCP cada 15s
+        res.socket.setNoDelay?.(true); // Enviar datos inmediatamente
+      }
 
       res.flushHeaders?.();
 
@@ -40,12 +47,13 @@ export class StreamController {
       res.write('event: connected\n');
       res.write(`data: {"userId":"${userId}","timestamp":"${new Date().toISOString()}"}\n\n`);
 
-      // Heartbeat cada 30s
+      // Heartbeat cada 15s (más frecuente para evitar timeouts de proxies)
+      // Cloud Run y otros proxies pueden cortar conexiones inactivas
       const heartbeatInterval = setInterval(() => {
         try {
           if (!res.writableEnded && !res.destroyed) {
-            res.write('event: heartbeat\n');
-            res.write('data: ping\n\n');
+            res.write(': heartbeat\n\n'); // Comentario SSE (mantiene viva la conexión)
+            this.logger.debug(`Heartbeat enviado a ${userId}`);
           } else {
             this.logger.warn(`Conexión cerrada para ${userId}, deteniendo heartbeat`);
             clearInterval(heartbeatInterval);
@@ -56,7 +64,7 @@ export class StreamController {
           clearInterval(heartbeatInterval);
           this.connections.cleanupConnection(userId, res);
         }
-      }, 30000);
+      }, 15000); // Cambiado de 30s a 15s
 
       req.on('close', () => {
         this.logger.log(`Cliente ${userId} cerró conexión`);

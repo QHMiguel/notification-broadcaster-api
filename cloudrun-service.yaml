@@ -1,0 +1,42 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notification-broadcaster-api
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Aumentar el timeout de request a 3600s (1 hora) para soportar SSE
+        # El máximo permitido por Cloud Run es 3600 segundos
+        run.googleapis.com/request-timeout: '3600'
+        
+        # Configuración de recursos
+        run.googleapis.com/cpu-throttling: 'false'
+        
+        # Escala automática
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '10'
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 3600
+      containers:
+      - image: gcr.io/PROJECT_ID/notification-broadcaster-api:latest
+        ports:
+        - name: http1
+          containerPort: 8080
+        env:
+        - name: PORT
+          value: '8080'
+        - name: APP_NAME
+          value: 'Notification Broadcaster API'
+        # Agregar otras variables de entorno según sea necesario
+        # - name: CORS_ORIGIN
+        #   value: 'https://your-frontend.com'
+        resources:
+          limits:
+            cpu: '1000m'
+            memory: '512Mi'
+
