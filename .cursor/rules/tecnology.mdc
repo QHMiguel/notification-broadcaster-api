@@ -1,0 +1,150 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Este es un proyecto desarrollado en Node con TypeScript y NestJS como framework principal. Utiliza Hapi.js como adaptador HTTP (a través de HapiAdapter personalizado) y MongoDB para persistencia de notificaciones. La aplicación está enfocada en la gestión de notificaciones en tiempo real mediante Server-Sent Events (SSE) y webhooks de Google Cloud Pub/Sub.
+
+**Tecnologías principales:**
+- **Framework:** NestJS v11 con TypeScript v5.7.3
+- **Servidor HTTP:** Hapi.js v21.4.3 (a través de adaptador personalizado HapiAdapter)
+- **Base de datos:** MongoDB v6.10.0 (driver nativo)
+- **Validación:** Joi v18.0.1
+- **Testing:** Jest v30.0.0
+- **Linting:** ESLint v9.18.0 con TypeScript ESLint v8.20.0
+- **Documentación API:** Swagger/OpenAPI con @nestjs/swagger v11.2.0
+- **Comunicación real-time:** Server-Sent Events (SSE)
+
+La estructura del proyecto es la siguiente:
+broadcaster-api/
+│
+├── adapters/                  # Adaptadores personalizados para el framework
+│   ├── hapi.adapter.ts        # Adaptador Hapi.js personalizado para NestJS
+│   ├── helpers/               # Utilidades para el adaptador
+│   │   ├── cors.helper.ts     # Configuración de CORS
+│   │   ├── path.helper.ts     # Manejo de rutas
+│   │   ├── request.helper.ts  # Procesamiento de requests
+│   │   ├── response.helper.ts # Procesamiento de responses
+│   │   ├── swagger.helper.ts  # Configuración de Swagger/OpenAPI
+│   │   └── view.helper.ts     # Manejo de vistas
+│   └── types/                 # Tipos TypeScript para el adaptador
+│       ├── application.type.ts
+│       ├── http-methods.type.ts
+│       ├── request.type.ts
+│       ├── response.type.ts
+│       ├── swagger.type.ts
+│       └── view.type.ts
+│
+├── src/                       # Código fuente de la aplicación
+│   ├── app.injectable.ts      # Configuración principal de dependencias de NestJS
+│   │
+│   ├── common/                # Recursos compartidos del framework
+│   │   ├── constants/         # Constantes globales
+│   │   │   └── global.constant.ts
+│   │   ├── decorators/        # Decoradores personalizados
+│   │   │   ├── inject-dependencies.decorator.ts
+│   │   │   └── route.decorator.ts
+│   │   ├── errors/            # Clases de error personalizadas
+│   │   │   └── not-content.error.ts
+│   │   ├── interceptors/      # Interceptores y filtros
+│   │   │   ├── all-exceptions.filter.ts
+│   │   │   └── tracking-id.middleware.ts
+│   │   ├── interfaces/        # Interfaces compartidas
+│   │   │   └── global.interface.ts
+│   │   ├── logger/            # Logger personalizado
+│   │   │   └── tracking.logger.ts
+│   │   └── pipes/             # Pipes de validación
+│   │       └── joi-validation.pipe.ts
+│   │
+│   ├── controllers/           # Controladores que manejan las peticiones HTTP
+│   │   ├── stream.controller.ts        # Manejo de conexiones SSE
+│   │   └── subscription.controller.ts  # Webhook de Pub/Sub
+│   │
+│   ├── routes/                # Definición de rutas API
+│   │   ├── stream.route.ts             # Ruta SSE /stream/:userId
+│   │   └── subscription.route.ts       # Ruta webhook /subscription/subscription-handler
+│   │
+│   ├── services/              # Lógica de negocio y gestión de estado
+│   │   ├── sse-connection-manager.service.ts  # Gestor de conexiones SSE activas
+│   │   └── mongodb.service.ts                 # Servicio de persistencia MongoDB
+│   │
+│   └── main.ts                # Punto de entrada de la aplicación
+│
+├── test/                      # Tests end-to-end
+│   ├── app.e2e-spec.ts
+│   └── jest-e2e.json
+│
+├── dist/                      # Archivos compilados de TypeScript
+├── Dockerfile                 # Configuración para Docker
+├── README.md                  # Documentación del proyecto
+├── env.template               # Template de variables de entorno
+├── package.json               # Dependencias y scripts de NPM
+├── package-lock.json          # Versiones exactas de dependencias
+├── nest-cli.json              # Configuración de NestJS CLI
+├── eslint.config.mjs          # Configuración de ESLint
+├── tsconfig.json              # Configuración de TypeScript principal
+└── tsconfig.build.json        # Configuración de TypeScript para build
+
+**Patrones de arquitectura utilizados:**
+- **Dependency Injection:** A través del sistema de DI de NestJS
+- **Singleton Pattern:** Para el gestor de conexiones SSE (en memoria)
+- **DTO Pattern:** Para validación y transferencia de datos con Joi
+- **Exception Filters:** Para manejo centralizado de errores con tracking ID
+- **Decorators:** Para configuración de rutas y dependencias personalizadas
+- **Service Layer:** Separación de lógica de negocio en servicios
+- **Controller Pattern:** Manejo de peticiones HTTP separado de la lógica de negocio
+- **Interceptor Pattern:** Para tracking de requests y logging
+
+**Módulos principales del sistema:**
+- **Stream (SSE):** Gestión de conexiones Server-Sent Events para notificaciones en tiempo real
+- **Subscription (Webhook):** Recepción de mensajes de Google Cloud Pub/Sub y retransmisión vía SSE
+- **SSE Connection Manager:** Gestor en memoria de conexiones activas por usuario y grupo
+- **MongoDB Service:** Persistencia y seguimiento de estado de notificaciones
+
+**Configuración de MongoDB:**
+- Conexión configurada en `MongoDBService` con auto-conexión al iniciar el módulo
+- Base de datos: `pushify` (configurable vía env)
+- Colección: `notifications` con esquema de notificaciones
+- Índices optimizados para búsquedas por recipient y estado
+- Soporte para operaciones de actualización de estado (pending → delivered → read)
+
+**Endpoints principales:**
+1. **GET /api/v1/stream/:userId** - Establecer conexión SSE para recibir notificaciones en tiempo real
+   - Headers SSE con `Content-Type: text/event-stream`
+   - Heartbeat cada 30 segundos para mantener conexión viva
+   - Eventos: `connected`, `heartbeat`, `notification`
+
+2. **POST /api/v1/subscription/subscription-handler** - Webhook para recibir mensajes de Pub/Sub
+   - Decodifica payload base64 de Pub/Sub
+   - Busca conexiones activas (individual, group, broadcast)
+   - Retransmite notificación vía SSE
+   - Actualiza estado en MongoDB
+   - Siempre responde 200 OK para ACK a Pub/Sub
+
+3. **GET /health** - Health check con métricas de conexiones activas
+   - Devuelve estado del servicio
+   - Incluye conteo de usuarios y grupos conectados
+
+4. **GET /api/docs** - Documentación Swagger interactiva (sin autenticación)
+
+**Variables de entorno requeridas:**
+```bash
+# Servidor
+PORT=3000
+NODE_ENV=development
+CORS_ORIGIN=*
+
+# MongoDB
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/
+MONGODB_DB=pushify
+```
+
+**Características especiales:**
+- Sistema de tracking ID único por request para trazabilidad completa
+- Logger personalizado que incluye tracking ID en todos los logs
+- Manejo robusto de conexiones SSE con limpieza automática
+- Soporte para múltiples conexiones del mismo usuario
+- Heartbeat automático para mantener conexiones vivas
+- ACK automático a Pub/Sub incluso en caso de error para evitar reintentos
+- CORS configurable para entornos de desarrollo y producción
+- Health endpoint sin prefijo para compatibilidad con Cloud Run/Kubernetes
