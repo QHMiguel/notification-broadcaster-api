@@ -53,7 +53,7 @@ export class StreamController {
         try {
           if (!res.writableEnded && !res.destroyed) {
             res.write(': heartbeat\n\n'); // Comentario SSE (mantiene viva la conexión)
-            this.logger.debug(`Heartbeat enviado a ${userId}`);
+            // No logueamos cada heartbeat para evitar spam en los logs
           } else {
             this.logger.warn(`Conexión cerrada para ${userId}, deteniendo heartbeat`);
             clearInterval(heartbeatInterval);
@@ -64,7 +64,7 @@ export class StreamController {
           clearInterval(heartbeatInterval);
           this.connections.cleanupConnection(userId, res);
         }
-      }, 15000); // Cambiado de 30s a 15s
+      }, 15000); // Cada 15 segundos para mantener viva la conexión
 
       req.on('close', () => {
         this.logger.log(`Cliente ${userId} cerró conexión`);
