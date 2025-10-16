@@ -38,7 +38,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }`
     );
 
-    response.setHeader('x-tracking-id', trackingId);
+    // Si la respuesta ya tiene headers SSE, no intentar modificarla
+    const contentType = response.getHeader?.('content-type');
+    if (contentType && contentType.toString().includes('text/event-stream')) {
+      this.logger.warn(`[${trackingId}] Error en conexión SSE, no se puede enviar respuesta de error`);
+      // Solo logueamos, no modificamos la respuesta SSE
+      return;
+    }
+
+    // Si los headers ya se enviaron, no podemos hacer nada más
+    if (response.headersSent) {
+      this.logger.warn(`[${trackingId}] Headers ya enviados, no se puede enviar respuesta de error`);
+      return;
+    }
+
+    try {
+      response.setHeader('x-tracking-id', trackingId);
+    } catch {}
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
@@ -73,18 +89,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       errors,
     };
 
-    if (response.headersSent) {
-      return;
-    }
-
     response.statusCode = status;
     try {
       if (!response.getHeader('content-type')) {
         response.setHeader('content-type', 'application/json; charset=utf-8');
       }
-    } catch {}
-
-    response.end(JSON.stringify(errorResponse));
+      response.end(JSON.stringify(errorResponse));
+    } catch (error) {
+      this.logger.error(`[${trackingId}] Error al enviar respuesta de error:`, error);
+      // Intentar enviar algo básico
+      try {
+        response.end();
+      } catch {}
+    }
   }
 }
   

@@ -10,6 +10,17 @@ async function bootstrap() {
   const lg = new Logger('Main');
   lg.log('🚀 Iniciando aplicación...');
 
+  // Manejar errores no capturados para evitar que el proceso muera
+  process.on('uncaughtException', (error: Error) => {
+    lg.error('❌ Uncaught Exception:', error.stack || error.message);
+    // No terminamos el proceso, solo logueamos
+  });
+
+  process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    lg.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    // No terminamos el proceso, solo logueamos
+  });
+
   const app = await NestFactory.create<NestHapiApplication>(
     AppInjectable, //aqui es donde se maneja las injecciones de dependencias
     new HapiAdapter
