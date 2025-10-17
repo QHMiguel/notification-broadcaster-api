@@ -46,8 +46,7 @@ export class SubscriptionController {
         });
       }
       
-      this.logger.log('📦 Body completo del request:');
-      this.logger.log(JSON.stringify(body, null, 2));
+      this.logger.log(`📦 Body: ${JSON.stringify(body)}`);
       this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       const { message } = body || {};
@@ -163,8 +162,7 @@ export class SubscriptionController {
         });
       }
       
-      this.logger.log('📦 Body completo del request:');
-      this.logger.log(JSON.stringify(body, null, 2));
+      this.logger.log(`📦 Body: ${JSON.stringify(body)}`);
       this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       const { messageId, recipient, notification, sender } = body || {};
