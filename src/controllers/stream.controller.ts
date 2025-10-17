@@ -21,7 +21,8 @@ export class StreamController {
       return;
     }
 
-    this.logger.log(`Nueva conexión SSE de userId=${userId}`);
+    const clientIp = req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    this.logger.log(`🔌 Nueva conexión SSE: userId=${userId} desde IP=${clientIp}`);
 
     try {
       // Headers SSE
@@ -43,9 +44,13 @@ export class StreamController {
       (res as any).userId = userId;
       this.connections.addUserConnection(userId, res);
 
+      const connectionInfo = this.connections.getConnectionCount();
+      this.logger.log(`👥 Total conexiones: ${connectionInfo.users} usuarios, ${connectionInfo.groups} grupos`);
+
       // Mensaje inicial
       res.write('event: connected\n');
       res.write(`data: {"userId":"${userId}","timestamp":"${new Date().toISOString()}"}\n\n`);
+      this.logger.log(`✅ Conexión SSE establecida para userId=${userId}`);
 
       // Heartbeat cada 15s (más frecuente para evitar timeouts de proxies)
       // Cloud Run y otros proxies pueden cortar conexiones inactivas
@@ -67,19 +72,21 @@ export class StreamController {
       }, 15000); // Cada 15 segundos para mantener viva la conexión
 
       req.on('close', () => {
-        this.logger.log(`Cliente ${userId} cerró conexión`);
+        this.logger.log(`🔌 Cliente ${userId} cerró conexión`);
         clearInterval(heartbeatInterval);
         this.connections.cleanupConnection(userId, res);
+        const connectionInfo = this.connections.getConnectionCount();
+        this.logger.log(`👥 Conexiones restantes: ${connectionInfo.users} usuarios, ${connectionInfo.groups} grupos`);
       });
 
       req.on('error', (error: any) => {
-        this.logger.error(`Error en conexión de ${userId}:`, error.message);
+        this.logger.error(`❌ Error en request de ${userId}:`, error.message);
         clearInterval(heartbeatInterval);
         this.connections.cleanupConnection(userId, res);
       });
 
       res.on('error', (error: any) => {
-        this.logger.error(`Error en response de ${userId}:`, error.message);
+        this.logger.error(`❌ Error en response de ${userId}:`, error.message);
         clearInterval(heartbeatInterval);
         this.connections.cleanupConnection(userId, res);
       });

@@ -1,4 +1,4 @@
-import { Post, Body } from '@nestjs/common';
+import { Post, Body, Req } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Routes } from 'src/common/decorators/route.decorator';
 import { SubscriptionController } from 'src/controllers/subscription.controller';
@@ -11,15 +11,15 @@ export class SubscriptionRoute {
   @Post('subscription-handler')
   @ApiOperation({ summary: 'Webhook de Pub/Sub para recibir notificaciones' })
   @ApiResponse({ status: 200, description: 'ACK OK' })
-  async handle(@Body() body: any): Promise<string> {
-    return await this.controller.subscriptionHandler(body);
+  async handle(@Body() body: any, @Req() req: any): Promise<string> {
+    return await this.controller.subscriptionHandler(body, req);
   }
 
   @Post('subscription-handler-plain')
   @ApiOperation({ summary: 'Webhook para recibir notificaciones en JSON plano (sin base64)' })
   @ApiResponse({ status: 200, description: 'ACK OK' })
-  async handlePlain(@Body() body: any): Promise<string> {
-    return await this.controller.subscriptionHandlerPlain(body);
+  async handlePlain(@Body() body: any, @Req() req: any): Promise<string> {
+    return await this.controller.subscriptionHandlerPlain(body, req);
   }
 }
 

@@ -23,7 +23,12 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestHapiApplication>(
     AppInjectable, //aqui es donde se maneja las injecciones de dependencias
-    new HapiAdapter
+    new HapiAdapter,
+    {
+      // Configurar nivel de logging
+      // Solo mostrar: log, error, warn (NO debug)
+      logger: ['log', 'error', 'warn'],
+    }
   );
   const { 
     PORT,
