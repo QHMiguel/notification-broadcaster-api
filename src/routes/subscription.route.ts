@@ -21,6 +21,20 @@ export class SubscriptionRoute {
   async handlePlain(@Body() body: any, @Req() req: any): Promise<string> {
     return await this.controller.subscriptionHandlerPlain(body, req);
   }
+
+  @Post('register-token')
+  @ApiOperation({ summary: 'Registra un token FCM para recibir notificaciones push web' })
+  @ApiResponse({ status: 200, description: 'Token registrado exitosamente' })
+  async registerToken(@Body() body: any): Promise<any> {
+    return await this.controller.registerToken(body);
+  }
+
+  @Post('unregister-token')
+  @ApiOperation({ summary: 'Elimina un token FCM' })
+  @ApiResponse({ status: 200, description: 'Token eliminado exitosamente' })
+  async unregisterToken(@Body() body: any): Promise<any> {
+    return await this.controller.unregisterToken(body);
+  }
 }
 
 

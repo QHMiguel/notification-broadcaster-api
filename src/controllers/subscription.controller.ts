@@ -1,19 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SSEConnectionManagerService } from 'src/services/sse-connection-manager.service';
-import { MongoDBService } from 'src/services/mongodb.service';
+import { FirestoreService } from 'src/integrations/firebase/firestore.service';
+import { FireBaseService } from 'src/integrations/firebase/firebase.service';
 
 @Injectable()
 export class SubscriptionController {
   private readonly logger = new Logger('SubscriptionController');
 
   constructor(
-    private readonly connections: SSEConnectionManagerService,
-    private readonly mongo: MongoDBService,
+    private readonly firestore: FirestoreService,
+    private readonly firebase: FireBaseService,
   ) {}
 
   /**
    * POST /subscription/subscription-handler
-   * Recibe mensajes push de Pub/Sub y reenvía por SSE
+   * Recibe mensajes push de Pub/Sub y envía notificaciones FCM Web
    */
   async subscriptionHandler(body: any, req?: any): Promise<string> {
     try {
@@ -69,55 +69,33 @@ export class SubscriptionController {
       this.logger.log(`   └─ Notificación: ${JSON.stringify(notification)}`);
       this.logger.log(`   └─ Remitente: ${JSON.stringify(sender)}`);
 
-      // Buscar conexiones target
-      let targetConnections: any[] = [];
-      if (recipient?.type === 'individual') {
-        const connection = this.connections.getUserConnection(recipient.id);
-        if (connection) targetConnections.push(connection);
-      } else if (recipient?.type === 'group') {
-        targetConnections = this.connections.getGroupConnections(recipient.id);
-      } else if (recipient?.type === 'broadcast') {
-        targetConnections = Array.from(this.connections.users.values());
-      }
-
-      this.logger.log(`🔍 Conexiones encontradas: ${targetConnections.length} para ${recipient?.type}:${recipient?.id}`);
-      
-      // Mostrar usuarios conectados actualmente
-      const allUsers = Array.from(this.connections.users.keys());
-      this.logger.log(`👥 Usuarios conectados actualmente: ${allUsers.join(', ') || '(ninguno)'}`);
-
-      if (targetConnections.length > 0) {
-        const current = await this.mongo.getNotificationById(messageId);
-        const sseData = JSON.stringify({
+      // Preparar datos de la notificación FCM Web
+      const pushNotification = {
+        title: notification?.title || 'Nueva notificación',
+        body: notification?.body || notification?.message || '',
+        icon: notification?.icon,
+        image: notification?.image,
+        data: {
           messageId,
-          notification,
-          recipient,
-          sender,
-          status: (current as any)?.status,
-          createdAt: (current as any)?.createdAt,
-          deliveredAt: (current as any)?.deliveredAt,
+          senderId: sender?.id,
+          senderName: sender?.name,
           timestamp: new Date().toISOString(),
-        });
+          ...notification?.data,
+        },
+      };
 
-        this.logger.log(`📤 Datos SSE a enviar: ${sseData}`);
+      // Enviar push notification según el tipo de recipient
+      const result = await this.firebase.sendNotificationByRecipient(recipient, pushNotification);
+      
+      this.logger.log(
+        `📤 [${messageId}] Push FCM enviado: ${result.sent} exitosos, ${result.failed} fallidos para ${recipient?.type}:${recipient?.id}`
+      );
 
-        let sent = 0;
-        for (const connection of targetConnections) {
-          try {
-            connection.write('event: notification\n');
-            connection.write(`data: ${sseData}\n`);
-            connection.write(`id: ${messageId}\n\n`);
-            sent++;
-          } catch (error) {
-            this.logger.warn(`⚠️ Error al enviar a una conexión: ${error}`);
-          }
-        }
-        this.logger.log(`✅ [${messageId}] Enviados ${sent}/${targetConnections.length} eventos SSE`);
-
-        await this.mongo.markAsDelivered(messageId);
-        this.logger.log(`✓ [${messageId}] Marcado como entregado en BD`);
+      if (result.sent > 0) {
+        await this.firestore.markAsDelivered(messageId);
+        this.logger.log(`✓ [${messageId}] Marcado como entregado en Firestore`);
       } else {
-        this.logger.warn(`⚠️ No hay conexiones activas para ${recipient?.type}:${recipient?.id}`);
+        this.logger.warn(`⚠️ No se pudo enviar a ningún dispositivo para ${recipient?.type}:${recipient?.id}`);
       }
 
       return 'OK';
@@ -130,7 +108,7 @@ export class SubscriptionController {
 
   /**
    * POST /subscription/subscription-handler-plain
-   * Recibe mensajes JSON planos (sin base64) y reenvía por SSE
+   * Recibe mensajes JSON planos (sin base64) y envía notificaciones FCM Web
    */
   async subscriptionHandlerPlain(body: any, req?: any): Promise<string> {
     try {
@@ -178,61 +156,103 @@ export class SubscriptionController {
       this.logger.log(`   └─ Notificación: ${JSON.stringify(notification)}`);
       this.logger.log(`   └─ Remitente: ${JSON.stringify(sender)}`);
 
-      // Buscar conexiones target
-      let targetConnections: any[] = [];
-      if (recipient?.type === 'individual') {
-        const connection = this.connections.getUserConnection(recipient.id);
-        if (connection) targetConnections.push(connection);
-      } else if (recipient?.type === 'group') {
-        targetConnections = this.connections.getGroupConnections(recipient.id);
-      } else if (recipient?.type === 'broadcast') {
-        targetConnections = Array.from(this.connections.users.values());
-      }
-
-      this.logger.log(`🔍 Conexiones encontradas: ${targetConnections.length} para ${recipient?.type}:${recipient?.id}`);
-      
-      // Mostrar usuarios conectados actualmente
-      const allUsers = Array.from(this.connections.users.keys());
-      this.logger.log(`👥 Usuarios conectados actualmente: ${allUsers.join(', ') || '(ninguno)'}`);
-
-      if (targetConnections.length > 0) {
-        const current = await this.mongo.getNotificationById(messageId);
-        const sseData = JSON.stringify({
+      // Preparar datos de la notificación FCM Web
+      const pushNotification = {
+        title: notification?.title || 'Nueva notificación',
+        body: notification?.body || notification?.message || '',
+        icon: notification?.icon,
+        image: notification?.image,
+        data: {
           messageId,
-          notification,
-          recipient,
-          sender,
-          status: (current as any)?.status,
-          createdAt: (current as any)?.createdAt,
-          deliveredAt: (current as any)?.deliveredAt,
+          senderId: sender?.id,
+          senderName: sender?.name,
           timestamp: new Date().toISOString(),
-        });
+          ...notification?.data,
+        },
+      };
 
-        this.logger.log(`📤 Datos SSE a enviar: ${sseData}`);
+      // Enviar push notification según el tipo de recipient
+      const result = await this.firebase.sendNotificationByRecipient(recipient, pushNotification);
+      
+      this.logger.log(
+        `📤 [${messageId}] Push FCM enviado (plain): ${result.sent} exitosos, ${result.failed} fallidos para ${recipient?.type}:${recipient?.id}`
+      );
 
-        let sent = 0;
-        for (const connection of targetConnections) {
-          try {
-            connection.write('event: notification\n');
-            connection.write(`data: ${sseData}\n`);
-            connection.write(`id: ${messageId}\n\n`);
-            sent++;
-          } catch (error) {
-            this.logger.warn(`⚠️ Error al enviar a una conexión: ${error}`);
-          }
-        }
-        this.logger.log(`✅ [${messageId}] Enviados ${sent}/${targetConnections.length} eventos SSE (plain)`);
-
-        await this.mongo.markAsDelivered(messageId);
-        this.logger.log(`✓ [${messageId}] Marcado como entregado en BD`);
+      if (result.sent > 0) {
+        await this.firestore.markAsDelivered(messageId);
+        this.logger.log(`✓ [${messageId}] Marcado como entregado en Firestore`);
       } else {
-        this.logger.warn(`⚠️ No hay conexiones activas para ${recipient?.type}:${recipient?.id}`);
+        this.logger.warn(`⚠️ No se pudo enviar a ningún dispositivo para ${recipient?.type}:${recipient?.id}`);
       }
 
       return 'OK';
     } catch (error: any) {
       this.logger.error('Error en subscription-handler-plain', error?.stack || String(error));
       return 'ERROR';
+    }
+  }
+
+  /**
+   * POST /subscription/register-token
+   * Registra un token FCM para un usuario
+   */
+  async registerToken(body: any): Promise<any> {
+    try {
+      const { userId, token, deviceInfo } = body;
+
+      if (!userId || !token) {
+        return {
+          success: false,
+          error: 'Missing required fields: userId, token'
+        };
+      }
+
+      await this.firestore.saveUserToken(userId, token, deviceInfo);
+      
+      this.logger.log(`✅ Token FCM registrado para usuario ${userId}`);
+      
+      return {
+        success: true,
+        message: 'Token registered successfully'
+      };
+    } catch (error: any) {
+      this.logger.error('Error registrando token FCM', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * POST /subscription/unregister-token
+   * Elimina un token FCM
+   */
+  async unregisterToken(body: any): Promise<any> {
+    try {
+      const { token } = body;
+
+      if (!token) {
+        return {
+          success: false,
+          error: 'Missing required field: token'
+        };
+      }
+
+      await this.firestore.removeUserToken(token);
+      
+      this.logger.log(`🗑️ Token FCM eliminado`);
+      
+      return {
+        success: true,
+        message: 'Token unregistered successfully'
+      };
+    } catch (error: any) {
+      this.logger.error('Error eliminando token FCM', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 }
