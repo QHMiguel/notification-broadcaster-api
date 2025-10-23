@@ -73,5 +73,5 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 package-lock.json
 
-
-src/integrations/firebase/keys/*
+# Ignorar claves de Firebase
+src/integrations/firebase/keys/

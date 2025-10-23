@@ -26,7 +26,7 @@ import { FirestoreService } from './integrations/firebase/firestore.service';
     FirebaseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
-        const serviceAccountPath = join(FIREBASE_PATH_KEY, `${configService.get('FIREBASE_KEY_NAME')}`);
+        const serviceAccountPath = join(FIREBASE_PATH_KEY, `${configService.get('FIREBASE_NAME_FILE_KEY')}`);
         if (!fs.existsSync(serviceAccountPath)) {
           Logger.error('❌ Firebase Credential file NOT FOUND at path:', serviceAccountPath);
         }
