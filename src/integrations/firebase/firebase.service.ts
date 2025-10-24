@@ -1,17 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { FirebaseAdmin, InjectFirebaseAdmin } from 'nestjs-firebase';
 import { BaseMessage } from 'firebase-admin/lib/messaging/messaging-api';
+import { MulticastResult, SendNotificationResult } from './interfaces/firebase.interface';
 
-export interface SendNotificationResult {
-  messageId?: string;
-  error?: string;
-}
-
-export interface MulticastResult {
-  successCount: number;
-  failureCount: number;
-  failedTokens: string[];
-}
 
 /**
  * Servicio para envío de notificaciones FCM (Firebase Cloud Messaging)

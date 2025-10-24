@@ -13,10 +13,6 @@ import {
   SendNotificationDto,
   SendNotificationResponse,
 } from './dtos/send-notification.dto';
-import {
-  WebhookPubSubDto,
-  WebhookMessageData,
-} from './dtos/webhook.dto';
 
 /**
  * Controlador para gestión de suscripciones y notificaciones push
@@ -51,7 +47,7 @@ export class SubscriptionController {
           sent: 0,
           failed: 0,
           totalTokens: 0,
-          error: 'No se encontraron tokens para el usuario',
+          error: 'No se encontraron sesiones activas para el usuario',
         };
       }
 
@@ -108,59 +104,6 @@ export class SubscriptionController {
         totalTokens: 0,
         error: error.message || 'Error desconocido',
       };
-    }
-  }
-
-  /**
-   * POST /subscription/subscription-handler
-   * Recibe mensajes de Pub/Sub y envía notificaciones FCM
-   */
-  async subscriptionHandler(body: WebhookPubSubDto, req?: any): Promise<string> {
-    try {
-      this.logWebhookRequest('subscription-handler', body, req);
-
-      const { message } = body;
-      if (!message?.data) {
-        this.logger.warn('❌ Mensaje inválido: falta campo data');
-        return 'ERROR: Invalid message format';
-      }
-
-      // Decodificar mensaje base64
-      const decodedString = Buffer.from(message.data, 'base64').toString('utf-8');
-      this.logger.log(`📩 Mensaje decodificado: ${decodedString.substring(0, 200)}...`);
-
-      const messageData: WebhookMessageData = JSON.parse(decodedString);
-      
-      await this.processWebhookMessage(messageData);
-
-      return 'OK';
-    } catch (error: any) {
-      this.logger.error('Error en subscription-handler', error?.stack || String(error));
-      return 'ERROR';
-    }
-  }
-
-  /**
-   * POST /subscription/subscription-handler-plain
-   * Recibe mensajes JSON planos (sin base64)
-   */
-  async subscriptionHandlerPlain(body: WebhookMessageData, req?: any): Promise<string> {
-    try {
-      this.logWebhookRequest('subscription-handler-plain', body, req);
-
-      const { messageId, recipient } = body;
-
-      if (!messageId || !recipient) {
-        this.logger.warn('❌ Payload inválido: falta messageId o recipient');
-        return 'ERROR: Invalid message format';
-      }
-
-      await this.processWebhookMessage(body);
-
-      return 'OK';
-    } catch (error: any) {
-      this.logger.error('Error en subscription-handler-plain', error?.stack || String(error));
-      return 'ERROR';
     }
   }
 
@@ -226,133 +169,6 @@ export class SubscriptionController {
     }
   }
 
-  // =============================================
-  // MÉTODOS PRIVADOS HELPER
-  // =============================================
-
-  /**
-   * Procesa un mensaje webhook y envía las notificaciones correspondientes
-   */
-  private async processWebhookMessage(messageData: WebhookMessageData): Promise<void> {
-    const { messageId, recipient, notification, sender } = messageData;
-
-    this.logger.log(`📬 [${messageId}] Procesando mensaje`);
-    this.logger.log(`   └─ Destinatario: ${recipient?.type}:${recipient?.id}`);
-    this.logger.log(`   └─ Notificación: ${notification?.title || 'Sin título'}`);
-
-    // Obtener tokens según el tipo de destinatario
-    const tokens = await this.getTokensByRecipient(recipient);
-
-    if (tokens.length === 0) {
-      this.logger.warn(`⚠️ No hay tokens para ${recipient?.type}:${recipient?.id}`);
-      return;
-    }
-
-    // Preparar notificación FCM
-    const fcmMessage = {
-      notification: {
-        title: notification?.title || 'Nueva notificación',
-        body: notification?.body || notification?.message || '',
-      },
-      webpush: notification?.image ? {
-        notification: {
-          image: notification.image,
-        },
-      } : undefined,
-      data: {
-        messageId,
-        senderId: sender?.id || '',
-        senderName: sender?.name || '',
-        timestamp: new Date().toISOString(),
-        ...(notification?.data && this.convertDataToStrings(notification.data)),
-      },
-    };
-
-    // Enviar notificación
-    const result = await this.firebase.sendToMultipleTokens(tokens, fcmMessage);
-
-    this.logger.log(
-      `📤 [${messageId}] Push enviado: ${result.successCount} exitosos, ${result.failureCount} fallidos`
-    );
-
-    // Marcar como entregado si se envió al menos a un dispositivo
-    if (result.successCount > 0) {
-      await this.firestore.markAsDelivered(messageId);
-      this.logger.log(`✓ [${messageId}] Marcado como entregado`);
-    }
-
-    // Limpiar tokens inválidos
-    if (result.failedTokens.length > 0 && recipient.type === 'user') {
-      await this.firestore.removeInvalidTokens(recipient.id, result.failedTokens);
-    }
-  }
-
-  /**
-   * Obtiene tokens según el tipo de destinatario
-   */
-  private async getTokensByRecipient(recipient: any): Promise<string[]> {
-    const { type, id } = recipient;
-
-    switch (type) {
-      case 'user':
-        return await this.firestore.getUserTokens(id);
-      
-      case 'group':
-        return await this.firestore.getGroupTokens(id);
-      
-      case 'broadcast':
-        return await this.firestore.getAllTokens();
-      
-      default:
-        this.logger.warn(`⚠️ Tipo de destinatario desconocido: ${type}`);
-        return [];
-    }
-  }
-
-  /**
-   * Convierte todos los valores de un objeto a strings (requerido por FCM)
-   */
-  private convertDataToStrings(data: Record<string, any>): Record<string, string> {
-    return Object.fromEntries(
-      Object.entries(data).map(([key, value]) => [
-        key,
-        typeof value === 'string' ? value : JSON.stringify(value),
-      ])
-    );
-  }
-
-  /**
-   * Log detallado de request webhook
-   */
-  private logWebhookRequest(endpoint: string, body: any, req?: any): void {
-    this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    this.logger.log(`🌐 WEBHOOK REQUEST: /subscription/${endpoint}`);
-    this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    if (req) {
-      const { method, url, headers, socket } = req;
-      const ipOrigin = headers?.['x-forwarded-for'] || socket?.remoteAddress || 'unknown';
-      const userAgent = headers?.['user-agent'] || 'N/A';
-
-      this.logger.log(`📍 ${method} ${url}`);
-      this.logger.log(`🌍 IP: ${ipOrigin}`);
-      this.logger.log(`🔑 User-Agent: ${userAgent}`);
-
-      const relevantHeaders = ['content-type', 'authorization', 'x-api-key'];
-      const foundHeaders = relevantHeaders
-        .filter((h) => headers?.[h])
-        .map((h) => `${h}: ${headers[h]}`);
-
-      if (foundHeaders.length > 0) {
-        this.logger.log(`📋 Headers: ${foundHeaders.join(', ')}`);
-      }
-    }
-
-    const bodyStr = JSON.stringify(body);
-    const bodyPreview = bodyStr.length > 500 ? `${bodyStr.substring(0, 500)}...` : bodyStr;
-    this.logger.log(`📦 Body: ${bodyPreview}`);
-    this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  }
 }
 
 

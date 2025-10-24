@@ -14,10 +14,6 @@ import {
   SendNotificationDto,
   SendNotificationResponse,
 } from 'src/controllers/dtos/send-notification.dto';
-import {
-  WebhookPubSubDto,
-  WebhookMessageData,
-} from 'src/controllers/dtos/webhook.dto';
 
 /**
  * Rutas para gestión de notificaciones push FCM
@@ -76,32 +72,6 @@ export class SubscriptionRoute {
   })
   async unregisterToken(@Body() body: UnregisterTokenDto): Promise<UnregisterTokenResponse> {
     return await this.controller.unregisterToken(body);
-  }
-
-  /**
-   * Webhook de Pub/Sub para recibir notificaciones (con base64)
-   */
-  @Post('subscription-handler')
-  @ApiOperation({
-    summary: 'Webhook de Pub/Sub para recibir notificaciones',
-    description: 'Recibe mensajes codificados en base64 desde Google Pub/Sub',
-  })
-  @ApiResponse({ status: 200, description: 'ACK OK' })
-  async handle(@Body() body: WebhookPubSubDto, @Req() req: any): Promise<string> {
-    return await this.controller.subscriptionHandler(body, req);
-  }
-
-  /**
-   * Webhook para recibir notificaciones en JSON plano (sin base64)
-   */
-  @Post('subscription-handler-plain')
-  @ApiOperation({
-    summary: 'Webhook para recibir notificaciones en JSON plano',
-    description: 'Recibe mensajes en JSON plano sin codificación base64',
-  })
-  @ApiResponse({ status: 200, description: 'ACK OK' })
-  async handlePlain(@Body() body: WebhookMessageData, @Req() req: any): Promise<string> {
-    return await this.controller.subscriptionHandlerPlain(body, req);
   }
 }
 
