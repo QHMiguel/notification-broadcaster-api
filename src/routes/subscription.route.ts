@@ -1,4 +1,4 @@
-import { Post, Body, Req } from '@nestjs/common';
+import { Post, Body } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Routes } from 'src/common/decorators/route.decorator';
 import { SubscriptionController } from 'src/controllers/subscription.controller';
@@ -14,6 +14,14 @@ import {
   SendNotificationDto,
   SendNotificationResponse,
 } from 'src/controllers/dtos/send-notification.dto';
+import {
+  UpdateNotificationStatusDto,
+  UpdateNotificationStatusResponse,
+  GetUserNotificationsDto,
+  GetUserNotificationsResponse,
+  GetNotificationHistoryDto,
+  GetNotificationHistoryResponse,
+} from 'src/controllers/dtos/notification-status.dto';
 
 /**
  * Rutas para gestión de notificaciones push FCM
@@ -24,12 +32,12 @@ export class SubscriptionRoute {
   constructor(private readonly controller: SubscriptionController) {}
 
   /**
-   * Envía notificación a todos los dispositivos de un usuario
+   * Envía notificación a todos los dispositivos de un usuario en un sistema
    */
   @Post('send-notification')
   @ApiOperation({
-    summary: 'Envía notificación a todos los tokens registrados de un usuario',
-    description: 'Busca todos los tokens FCM del usuario y envía la notificación a cada uno',
+    summary: 'Envía notificación a todos los tokens registrados de un usuario en un sistema',
+    description: 'Busca todos los tokens FCM del usuario en el sistema especificado y envía la notificación a cada uno',
   })
   @ApiResponse({
     status: 200,
@@ -41,12 +49,12 @@ export class SubscriptionRoute {
   }
 
   /**
-   * Registra un token FCM para un usuario
+   * Registra un token FCM para un usuario en un sistema
    */
   @Post('register-token')
   @ApiOperation({
-    summary: 'Registra un token FCM para recibir notificaciones push',
-    description: 'Guarda el token FCM asociado a un usuario para envío de notificaciones',
+    summary: 'Registra un token FCM para recibir notificaciones push en un sistema',
+    description: 'Guarda el token FCM asociado a un usuario y sistema para envío de notificaciones',
   })
   @ApiResponse({
     status: 200,
@@ -73,6 +81,61 @@ export class SubscriptionRoute {
   async unregisterToken(@Body() body: UnregisterTokenDto): Promise<UnregisterTokenResponse> {
     return await this.controller.unregisterToken(body);
   }
+
+  /**
+   * Actualiza el estado de una notificación (enviado, entregado, leído, failed)
+   */
+  @Post('update-notification-status')
+  @ApiOperation({
+    summary: 'Actualiza el estado de una notificación',
+    description: 'Permite actualizar el estado de una notificación (pending, sent, delivered, read, failed)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Estado actualizado exitosamente',
+    type: Object,
+  })
+  async updateNotificationStatus(
+    @Body() body: UpdateNotificationStatusDto,
+  ): Promise<UpdateNotificationStatusResponse> {
+    return await this.controller.updateNotificationStatus(body);
+  }
+
+  /**
+   * Obtiene todas las notificaciones de un usuario en un sistema
+   */
+  @Post('get-user-notifications')
+  @ApiOperation({
+    summary: 'Obtiene las notificaciones de un usuario en un sistema',
+    description: 'Retorna todas las notificaciones de un usuario filtradas por sistema, con opción de filtrar por estado',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Notificaciones obtenidas exitosamente',
+    type: Object,
+  })
+  async getUserNotifications(
+    @Body() body: GetUserNotificationsDto,
+  ): Promise<GetUserNotificationsResponse> {
+    return await this.controller.getUserNotifications(body);
+  }
+
+  /**
+   * Obtiene el historial de cambios de estado de una notificación
+   */
+  @Post('get-notification-history')
+  @ApiOperation({
+    summary: 'Obtiene el historial de estados de una notificación',
+    description: 'Retorna todos los cambios de estado que ha tenido una notificación a lo largo del tiempo',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Historial obtenido exitosamente',
+    type: Object,
+  })
+  async getNotificationHistory(
+    @Body() body: GetNotificationHistoryDto,
+  ): Promise<GetNotificationHistoryResponse> {
+    return await this.controller.getNotificationHistory(body);
+  }
 }
-
-

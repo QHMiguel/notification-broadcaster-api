@@ -7,6 +7,7 @@ export interface DeviceInfo {
 
 export interface RegisterTokenDto {
   userId: string;
+  systemId: string;        // Sistema/frontend al que pertenece el token
   token: string;
   deviceInfo?: DeviceInfo;
 }
