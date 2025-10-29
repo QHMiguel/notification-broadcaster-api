@@ -1,5 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { FirebaseAdmin, InjectFirebaseAdmin } from 'nestjs-firebase';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import * as admin from 'firebase-admin';
 import { NotificationStatus } from 'src/common/constants/global.constant';
 import {
@@ -11,6 +10,7 @@ import {
   ICreateNotificationData,
 } from './interfaces/firestore-models.interface';
 import { v4 as uuidv4 } from 'uuid';
+import { FIREBASE_ADMIN } from './firebase.injectable';
 
 @Injectable()
 export class FirestoreService implements OnModuleInit {
@@ -18,19 +18,17 @@ export class FirestoreService implements OnModuleInit {
   private db: admin.firestore.Firestore;
 
   constructor(
-    @InjectFirebaseAdmin()
-    private readonly firebase: FirebaseAdmin,
+    @Inject(FIREBASE_ADMIN)
+    private readonly firebaseAdmin: { admin: typeof admin; db: admin.firestore.Firestore },
   ) {}
 
   async onModuleInit() {
-    this.db = this.firebase.firestore;
+    this.db = this.firebaseAdmin.db;
     this.logger.log('✅ Firestore inicializado correctamente');
     await this.createIndexes();
   }
 
   private async createIndexes() {
-    // Firestore maneja índices automáticamente para consultas simples
-    // Índices compuestos deben configurarse en Firebase Console si es necesario
     this.logger.log('📊 Firestore listo (índices manejados por Firebase)');
   }
 
@@ -38,9 +36,6 @@ export class FirestoreService implements OnModuleInit {
   // MÉTODOS PARA SISTEMAS
   // =============================================
 
-  /**
-   * Crea o actualiza un sistema
-   */
   async saveSystem(systemId: string, name: string, description?: string): Promise<void> {
     try {
       const systemRef = this.db.collection('systems').doc(systemId);
@@ -64,9 +59,6 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Obtiene un sistema por ID
-   */
   async getSystem(systemId: string): Promise<ISystem | null> {
     try {
       const doc = await this.db.collection('systems').doc(systemId).get();
@@ -77,9 +69,6 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Lista todos los sistemas activos
-   */
   async listActiveSystems(): Promise<ISystem[]> {
     try {
       const snapshot = await this.db
@@ -98,13 +87,7 @@ export class FirestoreService implements OnModuleInit {
   // MÉTODOS PARA USUARIOS
   // =============================================
 
-  /**
-   * Crea o actualiza un usuario (solo metadata, sin sistemas)
-   */
-  async saveUser(
-    userId: string,
-    metadata?: any,
-  ): Promise<void> {
+  async saveUser(userId: string, metadata?: any): Promise<void> {
     try {
       const userRef = this.db.collection('users').doc(userId);
       const userDoc = await userRef.get();
@@ -125,9 +108,6 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Obtiene un usuario por ID
-   */
   async getUser(userId: string): Promise<IUser | null> {
     try {
       const doc = await this.db.collection('users').doc(userId).get();
@@ -142,46 +122,90 @@ export class FirestoreService implements OnModuleInit {
   // MÉTODOS PARA TOKENS FCM
   // =============================================
 
-  /**
-   * Registra o actualiza un token FCM para un usuario y sistema
-   */
   async saveUserToken(
-    userId: string,
-    systemId: string,
-    token: string,
-    deviceInfo?: any,
-  ): Promise<void> {
+    id: string | undefined,
+    userId: string, 
+    systemId: string, 
+    token: string, 
+    deviceInfo?: any
+  ): Promise<{ id: string; isNewRegistration: boolean; data: IFcmToken }> {
     try {
-      const tokenRef = this.db.collection('fcm_tokens').doc(token);
-      const tokenDoc = await tokenRef.get();
       const now = admin.firestore.Timestamp.now();
+      let tokenRef: admin.firestore.DocumentReference;
+      let isNewRegistration: boolean;
+
+      // Si se proporciona un ID, actualizar ese documento
+      if (id) {
+        tokenRef = this.db.collection('fcm_tokens').doc(id);
+        const tokenDoc = await tokenRef.get();
+        
+        if (!tokenDoc.exists) {
+          throw new Error(`No se encontró el documento con ID: ${id}`);
+        }
+
+        isNewRegistration = false;
+        const oldToken = (tokenDoc.data() as IFcmToken).token;
+        
+        if (oldToken !== token) {
+          this.logger.log(`🔄 Token FCM actualizado para documento ${id.substring(0, 20)}...`);
+        }
+      } else {
+        // Buscar si el token ya existe en algún documento
+        const existingTokenQuery = await this.db
+          .collection('fcm_tokens')
+          .where('token', '==', token)
+          .limit(1)
+          .get();
+
+        if (!existingTokenQuery.empty) {
+          // El token ya existe, reutilizar ese documento
+          const existingDoc = existingTokenQuery.docs[0];
+          tokenRef = existingDoc.ref;
+          isNewRegistration = false;
+          
+          this.logger.log(
+            `🔍 Token ya existe en documento ${tokenRef.id.substring(0, 20)}..., reutilizando`
+          );
+        } else {
+          // Token no existe, crear nuevo documento con ID autogenerado
+          tokenRef = this.db.collection('fcm_tokens').doc();
+          isNewRegistration = true;
+        }
+      }
 
       const tokenData: IFcmToken = {
         token,
         userId,
         systemId,
         deviceInfo: deviceInfo || {},
-        createdAt: tokenDoc.exists ? (tokenDoc.data() as IFcmToken).createdAt : now,
+        createdAt: isNewRegistration ? now : (await tokenRef.get()).data()?.createdAt || now,
         lastUsed: now,
       };
 
       await tokenRef.set(tokenData, { merge: true });
-      this.logger.log(`✅ Token FCM registrado/actualizado para usuario ${userId} en sistema ${systemId}`);
+      
+      const action = isNewRegistration ? 'registrado' : 'actualizado';
+      this.logger.log(
+        `✅ Token FCM ${action} para usuario ${userId} en sistema ${systemId} (docId: ${tokenRef.id.substring(0, 20)}...)`
+      );
 
-      // Crear usuario si no existe (solo para tener registro)
+      // Crear usuario si no existe
       const user = await this.getUser(userId);
       if (!user) {
         await this.saveUser(userId);
       }
+
+      return { 
+        id: tokenRef.id, 
+        isNewRegistration,
+        data: tokenData
+      };
     } catch (error) {
       this.logger.error(`❌ Error guardando token FCM`, error);
       throw error;
     }
   }
 
-  /**
-   * Obtiene todos los tokens FCM de un usuario en un sistema específico
-   */
   async getUserTokens(userId: string, systemId: string): Promise<string[]> {
     try {
       const snapshot = await this.db
@@ -197,21 +221,41 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Elimina un token FCM específico
-   */
-  async removeUserToken(token: string): Promise<void> {
+  async removeUserToken(id?: string, token?: string): Promise<void> {
     try {
-      await this.db.collection('fcm_tokens').doc(token).delete();
-      this.logger.log(`🗑️ Token FCM eliminado: ${token.substring(0, 20)}...`);
+      if (!id && !token) {
+        throw new Error('Debe proporcionar id o token');
+      }
+
+      // Si se proporciona ID, eliminar directamente
+      if (id) {
+        await this.db.collection('fcm_tokens').doc(id).delete();
+        this.logger.log(`🗑️ Token FCM eliminado por ID: ${id.substring(0, 20)}...`);
+        return;
+      }
+
+      // Si solo se proporciona token, buscar el documento por token
+      if (token) {
+        const tokenQuery = await this.db
+          .collection('fcm_tokens')
+          .where('token', '==', token)
+          .limit(1)
+          .get();
+
+        if (!tokenQuery.empty) {
+          const docRef = tokenQuery.docs[0].ref;
+          await docRef.delete();
+          this.logger.log(`🗑️ Token FCM eliminado por token: ${token.substring(0, 20)}...`);
+        } else {
+          this.logger.warn(`⚠️ Token no encontrado: ${token.substring(0, 20)}...`);
+        }
+      }
     } catch (error) {
       this.logger.error(`❌ Error eliminando token FCM`, error);
+      throw error;
     }
   }
 
-  /**
-   * Elimina todos los tokens de un usuario en un sistema
-   */
   async removeAllUserTokens(userId: string, systemId: string): Promise<void> {
     try {
       const snapshot = await this.db
@@ -230,20 +274,15 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Elimina tokens inválidos
-   */
   async removeInvalidTokens(invalidTokens: string[]): Promise<void> {
     if (invalidTokens.length === 0) return;
 
     try {
       const batch = this.db.batch();
-      
       invalidTokens.forEach(token => {
         const tokenRef = this.db.collection('fcm_tokens').doc(token);
         batch.delete(tokenRef);
       });
-
       await batch.commit();
       this.logger.log(`🧹 ${invalidTokens.length} tokens inválidos eliminados`);
     } catch (error) {
@@ -251,9 +290,6 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Limpia tokens antiguos no usados
-   */
   async cleanupOldTokens(daysOld: number = 90): Promise<number> {
     try {
       const cutoffDate = new Date();
@@ -285,9 +321,6 @@ export class FirestoreService implements OnModuleInit {
   // MÉTODOS PARA NOTIFICACIONES
   // =============================================
 
-  /**
-   * Crea una nueva notificación en estado PENDING
-   */
   async createNotification(data: ICreateNotificationData): Promise<string> {
     try {
       const notificationId = uuidv4();
@@ -301,7 +334,7 @@ export class FirestoreService implements OnModuleInit {
         title: data.title,
         body: data.body,
         icon: data.icon,
-        image: data.image,
+        image: data.image ?? '',
         data: data.data || {},
         tokensCount: 0,
         successCount: 0,
@@ -310,10 +343,7 @@ export class FirestoreService implements OnModuleInit {
       };
 
       await this.db.collection('notifications').doc(notificationId).set(notificationData);
-      
-      // Registrar en historial de estados
       await this.addNotificationStatusHistory(notificationId, undefined, NotificationStatus.PENDING);
-
       this.logger.log(`✅ Notificación ${notificationId} creada para usuario ${data.userId}`);
       return notificationId;
     } catch (error) {
@@ -322,15 +352,7 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Actualiza los contadores de envío de una notificación
-   */
-  async updateNotificationCounts(
-    notificationId: string,
-    tokensCount: number,
-    successCount: number,
-    failureCount: number,
-  ): Promise<void> {
+  async updateNotificationCounts(notificationId: string, tokensCount: number, successCount: number, failureCount: number): Promise<void> {
     try {
       await this.db.collection('notifications').doc(notificationId).update({
         tokensCount,
@@ -343,14 +365,7 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Actualiza el estado de una notificación
-   */
-  async updateNotificationStatus(
-    notificationId: string,
-    newStatus: NotificationStatus,
-    metadata?: any,
-  ): Promise<{ success: boolean; previousStatus?: NotificationStatus }> {
+  async updateNotificationStatus(notificationId: string, newStatus: NotificationStatus, metadata?: any): Promise<{ success: boolean; previousStatus?: NotificationStatus }> {
     try {
       const notificationRef = this.db.collection('notifications').doc(notificationId);
       const notificationDoc = await notificationRef.get();
@@ -364,12 +379,7 @@ export class FirestoreService implements OnModuleInit {
       const previousStatus = currentData.status;
       const now = admin.firestore.Timestamp.now();
 
-      // Preparar actualización
-      const updateData: any = {
-        status: newStatus,
-      };
-
-      // Agregar timestamp según el estado
+      const updateData: any = { status: newStatus };
       switch (newStatus) {
         case NotificationStatus.SENT:
           updateData.sentAt = now;
@@ -383,10 +393,7 @@ export class FirestoreService implements OnModuleInit {
       }
 
       await notificationRef.update(updateData);
-
-      // Registrar en historial de estados
       await this.addNotificationStatusHistory(notificationId, previousStatus, newStatus, metadata);
-
       this.logger.log(`✅ Notificación ${notificationId}: ${previousStatus} → ${newStatus}`);
       return { success: true, previousStatus };
     } catch (error) {
@@ -395,9 +402,6 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Obtiene una notificación por ID
-   */
   async getNotificationById(notificationId: string): Promise<INotification | null> {
     try {
       const doc = await this.db.collection('notifications').doc(notificationId).get();
@@ -408,16 +412,7 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Obtiene notificaciones de un usuario en un sistema
-   */
-  async getUserNotifications(
-    userId: string,
-    systemId: string,
-    status?: NotificationStatus,
-    limit: number = 50,
-    startAfter?: string,
-  ): Promise<{ notifications: INotification[]; hasMore: boolean }> {
+  async getUserNotifications(userId: string, systemId: string, status?: NotificationStatus, limit: number = 50, startAfter?: string): Promise<{ notifications: INotification[]; hasMore: boolean }> {
     try {
       let query = this.db
         .collection('notifications')
@@ -426,45 +421,23 @@ export class FirestoreService implements OnModuleInit {
         .orderBy('createdAt', 'desc')
         .limit(limit + 1);
 
-      if (status) {
-        query = query.where('status', '==', status);
-      }
-
+      if (status) query = query.where('status', '==', status);
       if (startAfter) {
         const startDoc = await this.db.collection('notifications').doc(startAfter).get();
-        if (startDoc.exists) {
-          query = query.startAfter(startDoc);
-        }
+        if (startDoc.exists) query = query.startAfter(startDoc);
       }
 
       const snapshot = await query.get();
-      const notifications = snapshot.docs
-        .slice(0, limit)
-        .map(doc => doc.data() as INotification);
+      const notifications = snapshot.docs.slice(0, limit).map(doc => doc.data() as INotification);
 
-      return {
-        notifications,
-        hasMore: snapshot.docs.length > limit,
-      };
+      return { notifications, hasMore: snapshot.docs.length > limit };
     } catch (error) {
       this.logger.error(`❌ Error obteniendo notificaciones de usuario ${userId}`, error);
       return { notifications: [], hasMore: false };
     }
   }
 
-  // =============================================
-  // MÉTODOS PARA HISTORIAL DE ESTADOS
-  // =============================================
-
-  /**
-   * Agrega un registro al historial de estados de una notificación
-   */
-  private async addNotificationStatusHistory(
-    notificationId: string,
-    previousStatus: NotificationStatus | undefined,
-    newStatus: NotificationStatus,
-    metadata?: any,
-  ): Promise<void> {
+  private async addNotificationStatusHistory(notificationId: string, previousStatus: NotificationStatus | undefined, newStatus: NotificationStatus, metadata?: any): Promise<void> {
     try {
       const historyId = uuidv4();
       const historyData: INotificationStatusHistory = {
@@ -482,12 +455,7 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  /**
-   * Obtiene el historial de estados de una notificación
-   */
-  async getNotificationStatusHistory(
-    notificationId: string,
-  ): Promise<INotificationStatusHistory[]> {
+  async getNotificationStatusHistory(notificationId: string): Promise<INotificationStatusHistory[]> {
     try {
       const snapshot = await this.db
         .collection('notification_status_history')

@@ -11,12 +11,14 @@ import { SubscriptionRoute } from './routes/subscription.route';
 import { SubscriptionController } from './controllers/subscription.controller';
 
 // Servicios e Integraciones
-import { FirebaseModule } from 'nestjs-firebase';
+import { SubscriptionService } from './services/subscription.service';
 import { Logger } from '@nestjs/common';
 import { join } from 'path';
 import { FIREBASE_PATH_KEY } from './common/constants/global.constant';
 import { FireBaseService } from './integrations/firebase/firebase.service';
 import { FirestoreService } from './integrations/firebase/firestore.service';
+import { FirebaseModule } from './integrations/firebase/firebase.injectable';
+
 
 @InjectDependencies({
   imports: [
@@ -24,15 +26,20 @@ import { FirestoreService } from './integrations/firebase/firestore.service';
       isGlobal: true,
     }),
     FirebaseModule.forRootAsync({
-      imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
         const serviceAccountPath = join(FIREBASE_PATH_KEY, `${configService.get('FIREBASE_NAME_FILE_KEY')}`);
         if (!fs.existsSync(serviceAccountPath)) {
           Logger.error('❌ Firebase Credential file NOT FOUND at path:', serviceAccountPath);
+          throw new Error('Firebase credential file not found');
         }
 
+        const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
         return {
-          googleApplicationCredential: serviceAccountPath,
+          projectId: serviceAccount.project_id,
+          clientEmail: serviceAccount.client_email,
+          privateKey: serviceAccount.private_key,
+          databaseName: configService.get('FIREBASE_DATABASE_NAME'),
         };
       },
       inject: [ConfigService],
@@ -40,6 +47,7 @@ import { FirestoreService } from './integrations/firebase/firestore.service';
   ],
   routes: [SubscriptionRoute],
   services: [
+    SubscriptionService,
     FirestoreService,
     FireBaseService,
     TrackingLogger,

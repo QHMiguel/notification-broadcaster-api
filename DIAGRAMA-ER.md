@@ -501,12 +501,114 @@ Colección: notifications
 
 ---
 
+## 📊 Índices Recomendados en Firestore
+
+Para optimizar las consultas, se recomienda crear los siguientes índices:
+
+### **Colección: `fcm_tokens`**
+```
+- userId (Ascending) + systemId (Ascending)
+- token (Ascending)  ← CRÍTICO: Para detectar duplicados al registrar
+```
+
+### **Colección: `notifications`**
+```
+- userId (Ascending) + systemId (Ascending) + createdAt (Descending)
+- userId (Ascending) + systemId (Ascending) + status (Ascending) + createdAt (Descending)
+```
+
+### **Colección: `notification_status_history`**
+```
+- notificationId (Ascending) + timestamp (Ascending)
+```
+
+---
+
+## 🔄 Lógica Anti-Duplicados
+
+### **Problema Resuelto:**
+Si un usuario inicia sesión en múltiples pestañas/dispositivos simultáneamente, todas intentarán registrar el mismo token FCM, creando documentos duplicados.
+
+### **Solución Implementada:**
+Al guardar un token sin ID, el sistema:
+1. **Busca si el token ya existe** en la colección `fcm_tokens`
+2. **Si existe**: Reutiliza ese documento, actualiza userId/systemId/deviceInfo
+3. **Si NO existe**: Crea un nuevo documento con ID autogenerado
+
+```typescript
+// Buscar si el token ya existe
+WHERE token == token
+LIMIT 1
+
+// Si existe → reutilizar documento existente
+// Si no existe → crear nuevo con .doc()
+```
+
+### **Beneficios:**
+- ✅ **1 token = 1 documento** (sin duplicados)
+- ✅ **Múltiples pestañas** reciben el mismo ID
+- ✅ **Notificaciones únicas** (no se duplican)
+- ✅ **Caché consistente** en frontend
+
+---
+
 ## 🎯 Conclusión
 
 Este diseño relacional permite:
 - ✅ **Escalabilidad multi-sistema**: Fácil agregar nuevos frontends
 - ✅ **Trazabilidad completa**: Historial de todos los estados
 - ✅ **Gestión eficiente**: Índices optimizados para consultas rápidas
+- ✅ **Sin duplicados**: Reutilización inteligente de tokens FCM
 - ✅ **Integridad de datos**: Relaciones bien definidas
 - ✅ **Flexibilidad**: Soporte para múltiples dispositivos por usuario
 
+
+
+┌─────────────────────────────────────────────────────────┐
+│  Frontend envía: POST /subscription/save-token          │
+│  { userId, systemId, token, deviceInfo, id? }           │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+            ┌────────────────────────┐
+            │   ¿Se envió un ID?     │
+            └────────┬───────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │ SÍ         │            │ NO
+        ▼            │            ▼
+┌───────────────┐    │    ┌──────────────────────┐
+│ Buscar doc    │    │    │ Buscar si el token   │
+│ por ID        │    │    │ ya existe            │
+│               │    │    │ WHERE token == token │
+│ ¿Existe?      │    │    │ LIMIT 1              │
+└───┬───────────┘    │    └────────┬─────────────┘
+    │                │             │
+    │ Sí             │    ┌────────┼──────────┐
+    ▼                │    │ Existe │          │ No existe
+┌───────────────┐    │    ▼        │          ▼
+│ Actualizar    │    │  ┌─────────┐│    ┌────────────┐
+│ ese documento │◄───┼──┤Reutilizar││    │ Crear nuevo│
+└───────────────┘    │  │documento ││    │ doc()      │
+                     │  └─────────┘│    └────────────┘
+                     │             │          │
+                     └─────────────┴──────────┘
+                                   │
+                                   ▼
+                     ┌──────────────────────────┐
+                     │ Guardar/Actualizar:      │
+                     │ - userId                 │
+                     │ - systemId               │
+                     │ - token                  │
+                     │ - deviceInfo             │
+                     │ - lastUsed = now()       │
+                     └────────────┬─────────────┘
+                                  │
+                                  ▼
+                     ┌──────────────────────────┐
+                     │ Response: {              │
+                     │   id: docId,             │
+                     │   isNewRegistration,     │
+                     │   data: {...}            │
+                     │ }                        │
+                     └──────────────────────────┘
