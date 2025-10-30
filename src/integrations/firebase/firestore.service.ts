@@ -412,28 +412,86 @@ export class FirestoreService implements OnModuleInit {
     }
   }
 
-  async getUserNotifications(userId: string, systemId: string, status?: NotificationStatus, limit: number = 50, startAfter?: string): Promise<{ notifications: INotification[]; hasMore: boolean }> {
+  async getUserNotifications(
+    userId: string,
+    systemId: string,
+    status?: NotificationStatus,
+    page: number = 1,
+    limit: number = 10,
+    daysBack: number = 7
+  ): Promise<{ notifications: INotification[]; pagination: { total: number; page: number; limit: number; totalPages: number } }> {
     try {
-      let query = this.db
+      // Calcular fecha límite (daysBack días atrás)
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+      const cutoffTimestamp = admin.firestore.Timestamp.fromDate(cutoffDate);
+      console.log("userId", userId, "systemId", systemId, "cutoffTimestamp", cutoffTimestamp)
+      // Query base para contar totales
+      let countQuery = this.db
         .collection('notifications')
         .where('userId', '==', userId)
         .where('systemId', '==', systemId)
-        .orderBy('createdAt', 'desc')
-        .limit(limit + 1);
+        .where('createdAt', '>=', cutoffTimestamp);
 
-      if (status) query = query.where('status', '==', status);
-      if (startAfter) {
-        const startDoc = await this.db.collection('notifications').doc(startAfter).get();
-        if (startDoc.exists) query = query.startAfter(startDoc);
+      if (status) {
+        countQuery = countQuery.where('status', '==', status);
       }
 
-      const snapshot = await query.get();
-      const notifications = snapshot.docs.slice(0, limit).map(doc => doc.data() as INotification);
+      // Obtener el total de registros
+      const countSnapshot = await countQuery.count().get();
+      const total = countSnapshot.data().count;
 
-      return { notifications, hasMore: snapshot.docs.length > limit };
+      // Calcular offset para la paginación
+      const offset = (page - 1) * limit;
+
+      // Query para obtener los datos paginados
+      let dataQuery = this.db
+        .collection('notifications')
+        .where('userId', '==', userId)
+        .where('systemId', '==', systemId)
+        .where('createdAt', '>=', cutoffTimestamp)
+        .orderBy('createdAt', 'desc')
+        .offset(offset)
+        .limit(limit);
+
+      if (status) {
+        dataQuery = dataQuery.where('status', '==', status);
+      }
+
+      const snapshot = await dataQuery.get();
+      const notifications = snapshot.docs.map(doc => doc.data() as INotification);
+
+      // Priorizar notificaciones no leídas
+      const unreadNotifications = notifications.filter(n => n.status !== NotificationStatus.READ);
+      const readNotifications = notifications.filter(n => n.status === NotificationStatus.READ);
+
+      const totalPages = Math.ceil(total / limit);
+
+      this.logger.log(
+        `📊 Obtenidas ${notifications.length} notificaciones (${unreadNotifications.length} no leídas, página ${page}/${totalPages}, últimos ${daysBack} días)`
+      );
+
+      // Retornar no leídas primero, luego leídas
+      return {
+        notifications: [...unreadNotifications, ...readNotifications],
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages
+        }
+      };
     } catch (error) {
       this.logger.error(`❌ Error obteniendo notificaciones de usuario ${userId}`, error);
-      return { notifications: [], hasMore: false };
+      return {
+        notifications: [],
+        pagination: {
+          total: 0,
+          page: 1,
+          limit,
+          totalPages: 0
+        }
+      };
     }
   }
 

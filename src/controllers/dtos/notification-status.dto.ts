@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import * as Joi from 'joi';
-import { NotificationStatus } from 'src/common/constants/global.constant';
+import { NotificationStatus, PaginationSchema } from 'src/common/constants/global.constant';
 import { IApiGlobalResponse } from 'src/common/interfaces/global.interface';
 
 /**
@@ -68,19 +68,28 @@ export class GetUserNotificationsDto {
   status?: NotificationStatus;
 
   @ApiPropertyOptional({
-    description: 'Límite de resultados',
-    example: 50,
-    default: 50,
+    description: 'Página actual (comienza en 1)',
+    example: 1,
+    default: 1,
+    type: Number
+  })
+  page?: number;
+
+  @ApiPropertyOptional({
+    description: 'Cantidad de registros por página',
+    example: 20,
+    default: 20,
     type: Number
   })
   limit?: number;
 
   @ApiPropertyOptional({
-    description: 'Para paginación (ID de última notificación)',
-    example: 'xyz789...',
-    type: String
+    description: 'Filtrar notificaciones de los últimos N días (por defecto 7)',
+    example: 7,
+    default: 7,
+    type: Number
   })
-  startAfter?: string;
+  daysBack?: number;
 }
 
 /**
@@ -88,7 +97,6 @@ export class GetUserNotificationsDto {
  */
 export interface UserNotificationsData {
   notifications: NotificationWithStatus[];
-  hasMore: boolean;
 }
 
 /**
@@ -183,56 +191,52 @@ export const UpdateNotificationStatusSchema = Joi.object<UpdateNotificationStatu
 
 /**
  * Schema de validación Joi para GetUserNotificationsDto
+ * Usa PaginationSchema para mantener consistencia en toda la API
  */
-export const GetUserNotificationsSchema = Joi.object<GetUserNotificationsDto>({
-  userId: Joi.string()
-    .min(1)
-    .max(100)
-    .required()
-    .messages({
-      'string.base': 'El ID de usuario debe ser un texto',
-      'string.empty': 'El ID de usuario no puede estar vacío',
-      'string.min': 'El ID de usuario debe tener al menos 1 carácter',
-      'string.max': 'El ID de usuario no puede tener más de 100 caracteres',
-      'any.required': 'El ID de usuario es requerido'
-    }),
-  systemId: Joi.string()
-    .min(1)
-    .max(100)
-    .required()
-    .messages({
-      'string.base': 'El ID de sistema debe ser un texto',
-      'string.empty': 'El ID de sistema no puede estar vacío',
-      'string.min': 'El ID de sistema debe tener al menos 1 carácter',
-      'string.max': 'El ID de sistema no puede tener más de 100 caracteres',
-      'any.required': 'El ID de sistema es requerido'
-    }),
-  status: Joi.string()
-    .valid(...Object.values(NotificationStatus))
-    .optional()
-    .messages({
-      'any.only': `El estado debe ser uno de: ${Object.values(NotificationStatus).join(', ')}`
-    }),
-  limit: Joi.number()
-    .integer()
-    .min(1)
-    .max(100)
-    .optional()
-    .default(50)
-    .messages({
-      'number.base': 'El límite debe ser un número',
-      'number.integer': 'El límite debe ser un número entero',
-      'number.min': 'El límite debe ser al menos 1',
-      'number.max': 'El límite no puede ser mayor a 100'
-    }),
-  startAfter: Joi.string()
-    .max(200)
-    .optional()
-    .allow(null, '')
-    .messages({
-      'string.max': 'El startAfter no puede tener más de 200 caracteres'
-    })
-});
+export const GetUserNotificationsSchema = PaginationSchema.concat(
+  Joi.object<GetUserNotificationsDto>({
+    userId: Joi.string()
+      .min(1)
+      .max(100)
+      .required()
+      .messages({
+        'string.base': 'El ID de usuario debe ser un texto',
+        'string.empty': 'El ID de usuario no puede estar vacío',
+        'string.min': 'El ID de usuario debe tener al menos 1 carácter',
+        'string.max': 'El ID de usuario no puede tener más de 100 caracteres',
+        'any.required': 'El ID de usuario es requerido'
+      }),
+    systemId: Joi.string()
+      .min(1)
+      .max(100)
+      .required()
+      .messages({
+        'string.base': 'El ID de sistema debe ser un texto',
+        'string.empty': 'El ID de sistema no puede estar vacío',
+        'string.min': 'El ID de sistema debe tener al menos 1 carácter',
+        'string.max': 'El ID de sistema no puede tener más de 100 caracteres',
+        'any.required': 'El ID de sistema es requerido'
+      }),
+    status: Joi.string()
+      .valid(...Object.values(NotificationStatus))
+      .optional()
+      .messages({
+        'any.only': `El estado debe ser uno de: ${Object.values(NotificationStatus).join(', ')}`
+      }),
+    daysBack: Joi.number()
+      .integer()
+      .min(1)
+      .max(90)
+      .optional()
+      .default(7)
+      .messages({
+        'number.base': 'Los días deben ser un número',
+        'number.integer': 'Los días deben ser un número entero',
+        'number.min': 'Los días deben ser al menos 1',
+        'number.max': 'Los días no pueden ser mayor a 90'
+      })
+  })
+);
 
 /**
  * Schema de validación Joi para GetNotificationHistoryDto

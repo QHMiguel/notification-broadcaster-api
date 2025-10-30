@@ -239,18 +239,19 @@ export class SubscriptionService {
   }
 
   /**
-   * Obtiene las notificaciones de un usuario en un sistema
+   * Obtiene las notificaciones de un usuario en un sistema con paginación
    */
   async getUserNotifications(dto: GetUserNotificationsDto): Promise<GetUserNotificationsResponse> {
-    const { userId, systemId, status, limit = 50, startAfter } = dto;
+    const { userId, systemId, status, page, limit, daysBack } = dto;
 
     try {
       const result = await this.firestore.getUserNotifications(
         userId,
         systemId,
         status,
+        page,
         limit,
-        startAfter,
+        daysBack,
       );
 
       const notifications: NotificationWithStatus[] = result.notifications.map(notif => ({
@@ -269,14 +270,16 @@ export class SubscriptionService {
         readAt: notif.readAt?.toDate().toISOString(),
       }));
 
-      this.logger.log(`✅ ${notifications.length} notificaciones obtenidas para usuario ${userId}`);
+      this.logger.log(
+        `✅ ${notifications.length} notificaciones obtenidas para usuario ${userId} (página ${page}, últimos ${daysBack} días)`
+      );
 
       return {
         status: true,
         data: {
           notifications,
-          hasMore: result.hasMore,
         },
+        pagination: result.pagination,
       };
     } catch (error: any) {
       this.logger.error(`❌ Error obteniendo notificaciones de usuario ${userId}`, error);

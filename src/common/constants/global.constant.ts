@@ -1,3 +1,4 @@
+import Joi from "joi";
 import { join } from "path";
 
 export enum DB_NAME {
@@ -25,3 +26,20 @@ export enum SystemType {
 }
 
 export const FIREBASE_PATH_KEY = join(process.cwd(), 'src', 'integrations', 'firebase', 'keys');
+
+
+export const PaginationSchema = Joi.object({
+	page: Joi.number()
+	  .integer()
+	  .min(1)
+	  .optional()
+	  .default(1),   // si no viene, vale 1
+  
+	limit: Joi.number()
+	  .integer()
+	  .min(1)
+	  .max(100)
+	  .optional()
+	  .default(10),  // si no viene, vale 10
+  });
+  
